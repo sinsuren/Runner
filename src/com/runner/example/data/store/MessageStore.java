@@ -8,6 +8,7 @@ import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 
 public class MessageStore {
     //Assuming message store has infinite number of message which can produce messages.
@@ -22,6 +23,7 @@ public class MessageStore {
             Long value = messageId.getAndIncrement();
             messages.add(new Message("Message " + value, value, UUID.randomUUID().toString(), new Random().nextInt(10) + ""));
         });
+
 
         return messages;
     }
