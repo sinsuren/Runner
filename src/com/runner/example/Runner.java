@@ -2,26 +2,72 @@ package com.runner.example;
 
 import com.runner.example.distributor.Distributor;
 import com.runner.example.dto.Message;
-import com.runner.example.reader.ReaderManager;
+import com.runner.example.processor.Processor;
+import com.runner.example.reader.Reader;
 
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class Runner {
 
-    public static void main(String[] args) throws InterruptedException {
+    private String runnerId;
+    Reader reader;
+    Distributor distributor;
+    Processor processor;
+    int readerMainQueueSize;
+    int readerParallelismDegree;
+    int processorParallelismDegree;
+    int processorQueueSize;
+    BlockingQueue<Message> mainQueue;
+    private Boolean isRunning = false;
 
-        LinkedBlockingQueue<Message> queue = new LinkedBlockingQueue<>(100);
+    public Runner(String runnerId, int readerMainQueueSize, int readerParallelismDegree, int processorParallelismDegree,
+                  int processorQueueSize) {
+        this.runnerId = runnerId;
+        this.readerMainQueueSize = readerMainQueueSize;
+        this.readerParallelismDegree = readerParallelismDegree;
+        this.processorParallelismDegree = processorParallelismDegree;
+        this.processorQueueSize = processorQueueSize;
+    }
 
-        ReaderManager readerManager = new ReaderManager(queue, 10);
-        Distributor distributor = new Distributor(queue, 10);
+    public void init() {
+        synchronized (this) {
+            if (!isRunning) {
+                try {
+                    initializeRunner();
+                } catch (Exception e) {
+                    throw e;
+                }
+            }
+        }
+    }
 
-        readerManager.start();
-        distributor.start();
+    private void initializeRunner() {
+
+        mainQueue = new LinkedBlockingQueue<>(readerMainQueueSize);
+
+        this.processor = new Processor("Processor_" + runnerId, processorParallelismDegree, processorQueueSize);
+
+        this.distributor = new Distributor(mainQueue, processor, processorParallelismDegree);
+        //Chances that this thread might stop
+        Thread distributorThread = new Thread(distributor, "Distributor_Thread");
+        distributorThread.start();
 
 
-        //readerManager.stop();
+        this.reader = new Reader(runnerId, mainQueue);
 
-        //System.out.println(queue.size());
+        Thread readerThread = new Thread(reader);
+        readerThread.start();
 
+        isRunning = true;
+    }
+
+    public void stopRunner() {
+        synchronized (this) {
+            this.reader.stop();
+            this.distributor.stopExecution();
+            this.processor.stopExecution();
+            this.isRunning = false;
+        }
     }
 }

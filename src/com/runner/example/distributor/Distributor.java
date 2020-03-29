@@ -1,33 +1,54 @@
 package com.runner.example.distributor;
 
-import com.runner.example.consumer.ConsumerManager;
-import com.runner.example.consumer.ConsumerThread;
+import com.runner.example.processor.Processor;
 import com.runner.example.dto.Message;
+import com.runner.example.task.ProcessorTask;
 
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
-public class Distributor {
+public class Distributor implements Runnable {
 
-    private LinkedBlockingQueue<Message> queue;
-    private ConsumerManager consumerManager;
-    private int parallelismDegree;
+    private BlockingQueue<Message> queue;
+    private Processor processor;
+    //Because atomicInt automatically handles volatility and Thread safety.
+    private AtomicInteger shouldProcess = new AtomicInteger(1);
+    int processorParallelism;
 
-    public Distributor(LinkedBlockingQueue<Message> queue, int processingParallelism) {
+    public Distributor(BlockingQueue<Message> queue, Processor processor, int processorParallelism) {
         this.queue = queue;
-        this.parallelismDegree = processingParallelism;
-        this.consumerManager = new ConsumerManager(processingParallelism);
+        this.processor = processor;
+        this.processorParallelism = processorParallelism;
     }
 
-    public void start() throws InterruptedException {
-        consumerManager.start();
+    @Override
+    public void run() {
+        Message message;
+        try {
+            while (shouldProcess.get() == 1 && ((message = queue.take()) != null)) {
 
-        while (true) {
-            Message message = queue.take();
-
-            int hashFunctionOutput = message.getGroupId().hashCode() % parallelismDegree;
-
-            ConsumerThread thread = consumerManager.get(hashFunctionOutput);
-            thread.push(message);
+                ProcessorTask processorTask = new ProcessorTask(message);
+                processor.getSubProcessors().get(getSubProcessorId(processorTask)).submitTask(processorTask);
+            }
+        } catch (InterruptedException ie) {
+            ie.printStackTrace();
         }
+    }
+
+    private String getSubProcessorId(ProcessorTask task) {
+        Message message = task.getMessage();
+
+        Integer hashKey = Math.abs(message.getGroupId().hashCode()) % processorParallelism;
+
+        return hashKey.toString();
+    }
+
+
+    public void stopExecution() {
+        shouldProcess.incrementAndGet();
+    }
+
+    public void haltExecution() {
+        shouldProcess.incrementAndGet();
     }
 }
